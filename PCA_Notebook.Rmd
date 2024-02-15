@@ -1,0 +1,142 @@
+---
+title: "PCA Notebook"
+author: "Simon Ogundare"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+If you've never installed the dependencies listed below on this device before:
+
+```{r install and load dependencies, eval = FALSE}
+install.packages("tidyverse")
+install.packages("corrr")
+install.packages("readxl")
+install.packages("ggcorrplot")
+install.packages("ggplot2")
+install.packages("FactoMineR")
+install.packages("factoextra")
+```
+
+Load required packages:
+
+```{r}
+library(tidyverse)
+library(corrr)
+library(readxl)
+library(ggcorrplot)
+library(ggplot2)
+library(FactoMineR)
+library(factoextra)
+```
+
+## Load Data
+
+Load Excel file and normalize numerical data
+
+```{r load CSV with NMR syllable data}
+syllable_data <- readxl::read_excel(path = "CSVs/Naked mole-rat colony master sheet (1).xlsx", sheet = 7) %>%
+  drop_na(Rank)
+#numerical_syllable_data <- syllable_data[, c(5:27)]
+numerical_syllable_data <- syllable_data[, c(5:12)]
+normalized_numerical_syllable_data <- scale(numerical_syllable_data)
+```
+
+Compute and plot correlation matrix using normalized numerical data to look at how well syllable frequency correlates with rank:
+
+```{r look at variable correlations}
+
+correlation_data_frame <- syllable_data[,c(4:12)]
+correlation_data_frame <- correlation_data_frame[,c(2:9, 1)]
+
+# Comment this the next two lines with '#' if you do not want to invert rank correlations (if you comment these lines out, high positive correlation indicates that high frequency syllable (red) <=> low ranking). Do not comment these lines out if you do not want to invert rankings:
+
+#########
+
+correlation_data_frame <- arrange(correlation_data_frame, Rank)
+correlation_data_frame$Rank <- rev(correlation_data_frame$Rank)
+
+#########
+
+corr_matrix <- cor(correlation_data_frame)
+pca_correlations <- ggcorrplot(corr_matrix)
+
+pca_correlations
+
+```
+
+## Principal Component Analysis
+
+Compute PCA and summarize results:
+
+```{r compute pca and summarize}
+data.pca <- princomp(corr_matrix)
+summary(data.pca)
+```
+
+Explore components of interest
+
+```{r explore components 1 and 2}
+
+# interpretation - higher absolute values indicate the factor can explain a larger variance of the sample (a reliable predictor)
+# low absolute values for each feature means the factor does not explain an appreciable variance in the sample (a less reliable predictor)
+
+data.pca$loadings[, 1:2]
+```
+
+## Visualize principal components
+
+Visualize PCs as Scree plot (visualizes importance of each principal component)
+
+```{r visualize scree plot}
+pca_scree <- fviz_eig(data.pca, addlabels = TRUE)
+pca_scree
+```
+
+Visualize PCA Biplot (visualizes impact of each feature on each principal component)
+
+```{r visualize biplot}
+pca_biplot <- fviz_pca_var(data.pca, col.var = "black")
+pca_biplot
+```
+
+Interpretation (from https://www.datacamp.com/tutorial/pca-analysis-r)
+
+Three main pieces of information can be observed from the previous plot. 
+
+- All the variables that are grouped together are positively correlated to each other.
+- The higher the distance between the variable and the origin, the better represented that variable is.
+- Variables that are negatively correlated are displayed to the opposite sides of the biplot’s origin.
+
+Visualize Cos2 (contribution of each variable within given component(s))
+
+```{r visualize cos2 plot}
+pca_cos2 <- fviz_cos2(data.pca, choice = "var", axes = 1:2)
+pca_cos2
+```
+
+Visualize Biplot with Cos2 plot
+
+```{r visualize biplot/cos2 plot}
+pca_bicos2 <- fviz_pca_var(data.pca, col.var = "cos2",
+            gradient.cols = c("black", "orange", "green"),
+            repel = TRUE)
+pca_bicos2
+```
+
+Save visualizations
+
+```{r save visualizations, eval = FALSE}
+ggsave(pca_correlations, filename = paste0("PCA_Corr_", Sys.Date(), ".png"), path = "Graphs/")
+ggsave(pca_scree, filename = paste0("PCA_Scree_", Sys.Date(), ".png"), path = "Graphs/")
+ggsave(pca_biplot, filename = paste0("PCA_Biplot_", Sys.Date(), ".png"), path = "Graphs/")
+ggsave(pca_cos2, filename = paste0("PCA_Cos2_", Sys.Date(), ".png"), path = "Graphs/")
+ggsave(pca_bicos2, filename = paste0("PCA_Biplot_Cos2_", Sys.Date(), ".png"), path = "Graphs/")
+```
+
+

@@ -1,0 +1,317 @@
+---
+title: "Social Contacts Notebook"
+author: "Simon Ogundare"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+library(rhdf5)
+library(tidygraph)
+library(ggraph)
+```
+
+```{r}
+folder_path = "All H5s with multiple animals/"
+graph_save_path = "Graphs/"
+data_export_path = "Exports/"
+ref_point = 1 # which node to assess pairwise social contacts with (1 = nose)
+proximity_threshold =  20 # pixel proximity under which to consider a social interaction
+minimum_bout_separation = 1 # number of frames that separate bouts
+overlay_colors = c("blue", "red") # colors to use when overlaying pairs of animals
+n_animal_override = 3
+save_graphs = TRUE
+save_interaction_networks = FALSE
+```
+
+```{r}
+
+interaction_data <- data.frame(matrix(ncol = 7, nrow = 0))
+  names(interaction_data) <- c("video", "nmr1", "nmr2",
+                               "true_interaction_duration", "true_interaction_n",
+                               "phantom_interaction_duration", "phantom_interaction_n")
+
+
+  folder <- folder_path
+  h5s <- list.files(path = folder, pattern = "*.h5")
+
+for (file in h5s) {
+    rhdf5::h5closeAll()
+    h5f = H5Fopen(paste0(folder, file))
+    message("Loading file: ", file)
+
+    # override auto-selecting number of nmrs by manually setting if there are more total tracks than nmrs
+
+    if (is.na(n_animal_override)) {
+      n_animals <- as.numeric(length(h5f$track_names))
+    } else {
+      n_animals <- n_animal_override
+    }
+
+    dist <- function(x1, y1, x2, y2) {
+      distance <- sqrt((x1-x2)^2 + (y1-y2)^2)
+      return(distance)
+    }
+    
+    midpoint <- function(x1, x2) {
+      midpoint <- 0.5*(x1 + x2)
+      return(midpoint)
+    }
+
+    df <- data.frame(matrix(nrow = length(h5f$tracks[,1,1,1])))
+
+    for (animal in 1:n_animals) {
+      x <- h5f$tracks[,ref_point,1,animal]
+      x[is.nan(x)] <- NA
+      y <- h5f$tracks[,ref_point,2,animal]
+      y[is.nan(y)] <- NA
+
+      df <- cbind(df, x)
+      df <- cbind(df, y)
+    }
+
+    df <- df[2:ncol(df)]
+
+    colnames <- c()
+
+    for (animal in 1:n_animals) {
+      colnames <- append(colnames, paste0(h5f$track_names[animal], "_x"))
+      colnames <- append(colnames, paste0(h5f$track_names[animal], "_y"))
+    }
+
+    names(df) <- colnames
+
+
+    combinations <- combn(1:n_animals, 2)
+
+    for (pairing in 1:ncol(combinations)) {
+
+      pairer <- combinations[1, pairing]
+      pairee <- combinations[2, pairing]
+
+      df <- df %>%
+        mutate(distance = dist(df[[2*pairer-1]], df[[2*pairer]], df[[2*pairee-1]], df[[2*pairee]]))
+
+      names(df)[length(df)] <- paste0("real_distance_", as.character(pairer), "_and_", as.character(pairee))
+    }
+
+
+    nmr_plots <- list()
+
+    for (n in 1:n_animals) {
+
+      x_col <- names(df)[2*n - 1]
+      y_col <- names(df)[2*n]
+
+      df_filt <- df %>%
+        select(all_of(c(x_col, y_col)))
+
+      names(df_filt) <- c("x_pos", "y_pos")
+
+      nmr_track_plot <- ggplot(data = df_filt) +
+        geom_point(aes(x = x_pos, y = y_pos), alpha = 0.05) +
+        theme_void() +
+        theme(legend.position = "none") +
+        labs(title = "NMR trajectory")
+
+      nmr_plots <- c(nmr_plots, list(nmr_track_plot))
+    }
+
+
+    ###???? proximity_plots <- list()
+
+
+    for (combination in 1:ncol(combinations)) {
+
+      nmr1_real_x <- df[,2*(combinations[1, combination]) - 1]
+      nmr1_real_y <- df[,2*(combinations[1, combination])]
+
+      nmr2_real_x <- df[,2*(combinations[2, combination]) - 1]
+      nmr2_real_y <- df[,2*(combinations[2, combination])]
+
+      x_max_max <- max(c(max(na.omit(nmr1_real_x)), max(na.omit(nmr2_real_x))))
+      y_max_max <- max(c(max(na.omit(nmr1_real_y)), max(na.omit(nmr2_real_y))))
+
+      nmr1_real_x <- x_max_max - nmr1_real_x
+      nmr1_real_y <- y_max_max - nmr1_real_y
+
+      nmr2_real_x <- max(na.omit(nmr2_real_x)) - nmr2_real_x
+      nmr2_real_y <- max(na.omit(nmr2_real_y)) - nmr2_real_y
+
+      ##### Generation of phantom trajectories
+      
+      # invert x trajectory (times -1), then move up
+      nmr2_phantom_x <- (nmr2_real_x*-1) + max(na.omit(nmr2_real_x))
+      # invert y trajectory (times -1), then move up
+      nmr2_phantom_y <- (nmr2_real_y*-1) + max(na.omit(nmr2_real_y))
+      
+      ###########
+      
+      real_overlay_data <- data.frame(frame = 1:length(nmr1_real_x), nmr1_real_x, nmr1_real_y, nmr2_real_x, nmr2_real_y) %>%
+        mutate(real_distance = dist(nmr1_real_x, nmr1_real_y, nmr2_real_x, nmr2_real_y)) %>%
+        mutate(x_midpoint = midpoint(nmr1_real_x, nmr2_real_x)) %>%
+        mutate(y_midpoint = midpoint(nmr1_real_y, nmr2_real_y))
+
+      phantom_overlay_data <- data.frame(frame = 1:length(nmr1_real_x), nmr1_real_x, nmr1_real_y, nmr2_phantom_x, nmr2_phantom_y) %>%
+        mutate(phantom_distance = dist(nmr1_real_x, nmr1_real_y, nmr2_phantom_x, nmr2_phantom_y)) %>%
+        mutate(x_midpoint = midpoint(nmr1_real_x, nmr2_phantom_x)) %>%
+        mutate(y_midpoint = midpoint(nmr1_real_y, nmr2_real_y))
+
+      # plot raw REAL position of nmrs 1 and 2; color red and blue
+      
+      real_overlay <- ggplot(data = real_overlay_data) +
+        geom_point(aes(x = nmr1_real_x, y = nmr1_real_y), color = overlay_colors[1], alpha = 0.05) +
+        geom_point(aes(x = nmr2_real_x, y = nmr2_real_y), color = overlay_colors[2], alpha = 0.05) +
+        theme_void() +
+        theme(legend.position = "none") +
+        labs(title = "Real NMR trajectory")
+
+      # plot raw positions of REAL nmrs 1 and "phantom" (90˚ rotation) nmr 2; color red and blue
+      
+      phantom_overlay <- ggplot(data = phantom_overlay_data) +
+        geom_point(aes(x = nmr1_real_x, y = nmr1_real_y), color = overlay_colors[1], alpha = 0.05) +
+        geom_point(aes(x = nmr2_phantom_x, y = nmr2_phantom_y), color = overlay_colors[2], alpha = 0.05) +
+        theme_void() +
+        theme(legend.position = "none") +
+        labs(title = "Phantom NMR trajectory")
+
+      real_proximity_overlay_data <- real_overlay_data %>%
+        select("real_distance") %>%
+        mutate(frame = 1:nrow(real_overlay_data)) %>%
+        drop_na("real_distance") %>%
+        mutate(social_interactions = real_distance <= proximity_threshold)
+
+      real_proximity_overlay_data <- real_proximity_overlay_data[real_proximity_overlay_data$social_interactions == TRUE,]
+
+      phantom_proximity_overlay_data <- phantom_overlay_data %>%
+        select("phantom_distance") %>%
+        mutate(frame = 1:nrow(real_overlay_data)) %>%
+        drop_na("phantom_distance") %>%
+        mutate(social_interactions = phantom_distance <= proximity_threshold)
+
+      phantom_proximity_overlay_data <- phantom_proximity_overlay_data[phantom_proximity_overlay_data$social_interactions == TRUE,]
+
+      proximity_real_plot <- ggplot(data = real_proximity_overlay_data, aes(x = frame, y = social_interactions)) +
+        geom_tile(fill = "blue") +
+        theme_classic() +
+        labs(x = "Frame number",
+             y = paste0("Snout-to-snout contacts within ", proximity_threshold, " pixels"))
+
+      proximity_phantom_plot <- ggplot(data = phantom_proximity_overlay_data, aes(x = frame, y = social_interactions)) +
+        geom_tile(fill = "blue") +
+        theme_classic() +
+        labs(x = "Frame number",
+             y = paste0("Snout-to-snout contacts within ", proximity_threshold, " pixels"))
+      
+      proximity_midpoint_real_plot <- ggplot(data = real_overlay_data) +
+        geom_point(aes(x = x_midpoint, y = y_midpoint, alpha = 1/real_distance,
+                       color = log(real_distance), size = 1/real_distance)) +
+        scale_colour_gradient(low = "red", high = "white", na.value = NA) +
+  theme_void() +
+  theme(legend.position = "none") +
+  labs(alpha = "Inverse of log(distance)",
+       title = "NMR interaction hotspots")
+      
+      proximity_midpoint_phantom_plot <- ggplot(data = phantom_overlay_data) +
+        geom_point(aes(x = x_midpoint, y = y_midpoint, alpha = 1/phantom_distance,
+                       color = log(phantom_distance), size = 1/phantom_distance)) +
+        scale_colour_gradient(low = "red", high = "white", na.value = NA) +
+  theme_void() +
+  theme(legend.position = "none") +
+  labs(alpha = "Inverse of log(distance)",
+       title = "NMR interaction hotspots")
+
+      ###### proximity_plots <- append(proximity_plots, list(proximity_plot))
+
+
+      if (save_graphs) {
+        ggsave(phantom_overlay, filename = paste0("phantom_overlay_(tracks_", combinations[1,combination]-1, "_", combinations[2,combination]-1, ")_", file, "_", Sys.Date(), ".png"), path = graph_save_path)
+        ggsave(real_overlay, filename = paste0("real_overlay_(tracks_", combinations[1,combination]-1, "_", combinations[2,combination]-1, ")_",  file, "_", Sys.Date(), ".png"), path = graph_save_path)
+        ggsave(proximity_midpoint_real_plot, filename = paste0("proximity_midpoint_real_(tracks_", combinations[1,combination]-1, "_", combinations[2,combination]-1, ")_",  file, Sys.Date(), ".png"), path = graph_save_path)
+        ggsave(proximity_midpoint_phantom_plot, filename = paste0("proximity_midpoint_phantom_(tracks_", combinations[1,combination]-1, "_", combinations[2,combination]-1, ")_", file, Sys.Date(), ".png"), path = graph_save_path)
+      }
+
+      ####
+
+      interaction_data <- rbind(interaction_data, list("video" = file,
+                                                       "nmr1_track" = combinations[1,combination] - 1,
+                                                       "nmr2_track" = combinations[2,combination] - 1,
+                                                       "true_interaction_duration" = length(real_proximity_overlay_data$frame),
+                                                       "true_interaction_n" = length(which(diff(real_proximity_overlay_data$frame) > minimum_bout_separation)),
+                                                       "phantom_interaction_duration" = length(phantom_proximity_overlay_data$frame),
+                                                       "phantom_interaction_n" = length(which(diff(phantom_proximity_overlay_data$frame) > minimum_bout_separation))))
+
+    }
+
+
+    interaction_network <- as_tbl_graph(interaction_data)
+
+    real_network_duration <- interaction_network %>%
+      ggraph(., layout = 'auto') +
+      geom_node_point(size = 5) +
+      geom_edge_link(aes(width = true_interaction_duration,
+                         alpha = true_interaction_duration),
+                     color = "blue") +
+      geom_node_point(linewidth = 5) +
+      geom_label(aes(x = x, y = y, label = name), nudge_y = 0.1, label.size = NA) +
+      theme_void() +
+      labs(width = "Cumulative interaction time")
+
+    real_network_bouts <- interaction_network %>%
+      ggraph(., layout = 'auto') +
+      geom_node_point(size = 5) +
+      geom_edge_link(aes(width = true_interaction_n,
+                         alpha = true_interaction_n),
+                     color = "blue") +
+      geom_node_point(linewidth = 5) +
+      geom_label(aes(x = x, y = y, label = name), nudge_y = 0.1, label.size = NA) +
+      theme_void() +
+      labs(width = "Cumulative interaction time")
+
+    phantom_network_duration <- interaction_network %>%
+      ggraph(., layout = 'auto') +
+      geom_node_point(size = 5) +
+      geom_edge_link(aes(width = phantom_interaction_duration,
+                         alpha = phantom_interaction_duration),
+                     color = "red") +
+      geom_node_point(linewidth = 5) +
+      geom_label(aes(x = x, y = y, label = name), nudge_y = 0.1, label.size = NA) +
+      theme_void() +
+      labs(width = "Chance interaction time")
+
+    phantom_network_bouts <- interaction_network %>%
+      ggraph(., layout = 'auto') +
+      geom_node_point(size = 5) +
+      geom_edge_link(aes(width = phantom_interaction_n,
+                         alpha = phantom_interaction_n),
+                     color = "red") +
+      geom_node_point(linewidth = 5) +
+      geom_label(aes(x = x, y = y, label = name), nudge_y = 0.1, label.size = NA) +
+      theme_void() +
+      labs(width = "Chance interaction time")
+
+    if (save_interaction_networks) {
+      ggsave(real_network_duration, filename = paste0("network_true_duration", file, Sys.Date(), ".png"), path = graph_save_path)
+      ggsave(real_network_bouts, filename = paste0("network_true_bouts", file, Sys.Date(), ".png"), path = graph_save_path)
+      ggsave(phantom_network_duration, filename = paste0("network_phantom_duration", file, Sys.Date(), ".png"), path = graph_save_path)
+      ggsave(phantom_network_bouts, filename = paste0("network_phantom_bouts", file, Sys.Date(), ".png"), path = graph_save_path)
+    }
+    
+}
+
+```
+
+Generate social interactions CSV
+
+```{r}
+write.csv(interaction_data, file = file.path(data_export_path, "social_contacts.csv"))
+```
+
+
+
+
+
+

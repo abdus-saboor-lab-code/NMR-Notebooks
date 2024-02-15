@@ -1,0 +1,171 @@
+---
+title: "UMAP Notebook"
+author: "Simon Ogundare"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+If you've never installed UMAP (or the dependencies listed below) on this device before:
+
+```{r install and load UMAP and dependencies, eval = FALSE}
+install.packages("tidyverse")
+install.packages("umap")
+install.packages("readxl")
+install.packages("ggplot2")
+install.packages("ggpubr")
+install.packages("caret")
+install.packages("factoextra")
+```
+
+Load required packages:
+
+```{r}
+library(tidyverse)
+library(umap)
+library(readxl)
+library(ggplot2)
+library(ggpubr)
+library(caret)
+library(factoextra)
+```
+
+## Load Data
+
+Load Excel file and divide into numerical data (`syllable_data.data`) and label data (`syllable_data.labels`)
+
+```{r load CSV with NMR syllable data}
+syllable_data <- readxl::read_excel(path = "CSVs/Naked mole-rat colony master sheet (1).xlsx", sheet = 7) %>%
+  drop_na(Rank)
+#syllable_data.data <- syllable_data[, c(5:27)]
+syllable_data.data <- syllable_data[, c(5:12)]
+syllable_data.labels <- syllable_data[, 1:4]
+```
+
+## Create and visualize UMAP projection
+
+Set UMAP parameter(s), then create and visualize UMAP projection:
+
+```{r}
+# Definition of nearest neighbors (https://search.r-project.org/CRAN/refmans/uwot/html/umap.html)
+# The size of local neighborhood (in terms of number of neighboring sample points) used for manifold approximation. Larger values result in more global views of the manifold, while smaller values result in more local data being preserved. In general values should be in the range 2 to 100.
+
+nearest_neighbors = 3
+graph_title = "UMAP Projection of NMR Syllable Distributions"
+
+```
+
+
+```{r}
+nmr.umap <- umap(syllable_data.data, n_neighbors = nearest_neighbors)
+coordinates_labels <- data.frame(nmr.umap$layout, syllable_data.labels)
+
+umap_rank <- ggplot(data = coordinates_labels, mapping = aes(x = X1, y = X2)) +
+  geom_point(aes(color = Rank)) +
+  labs(title = graph_title,
+       x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2",
+       color = "Rank") +
+  scale_color_gradient(trans = 'reverse', low = "blue", high = "red") +
+  geom_label(label = coordinates_labels$Rank,
+             nudge_y = 0.25) +
+  theme_classic()
+
+umap_weight <- ggplot(data = coordinates_labels, mapping = aes(x = X1, y = X2)) +
+  geom_point(aes(color = Weight..g.)) +
+  labs(title = graph_title,
+       x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2",
+       color = "Weight (g)") +
+  scale_color_gradient(low = "blue", high = "red") +
+  #geom_label(label = coordinates_labels$Weight..g.,
+  #           nudge_y = 0.25) +
+  theme_classic()
+
+umap_id <- ggplot(data = coordinates_labels, mapping = aes(x = X1, y = X2)) +
+  geom_point() +
+  labs(title = graph_title,
+       x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2") +
+  geom_label(label = coordinates_labels$Animal.ID,
+             nudge_y = 0.25) +
+  theme_classic()
+
+umap_age <- ggplot(data = coordinates_labels, mapping = aes(x = X1, y = X2)) +
+  geom_point(aes(color = Age.during.recording..days.)) +
+  labs(title = graph_title,
+       x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2",
+       color = "Age during recording (days)") +
+  scale_color_gradient(low = "blue", high = "red") +
+  geom_label(label = coordinates_labels$Age.during.recording..days.,
+             nudge_y = 0.25) +
+  theme_classic()
+
+
+umap_rank
+umap_weight
+umap_id
+umap_age
+
+```
+
+[Optional] Save UMAP visualization
+
+```{r save visualizations, eval = FALSE}
+ggsave(umap_rank, filename = paste0("UMAP_Ranks_", Sys.Date(), ".png"), path = "Graphs/")
+ggsave(umap_weight, filename = paste0("UMAP_Weights_", Sys.Date(), ".png"), path = "Graphs/")
+ggsave(umap_id, filename = paste0("UMAP_IDs_", Sys.Date(), ".png"), path = "Graphs/")
+ggsave(umap_age, filename = paste0("UMAP_Ages_", Sys.Date(), ".png"), path = "Graphs/")
+```
+
+
+```{r}
+set.seed(123)
+
+clusters <- 2 # one cluster is high-ranking, another is low-ranking
+
+km.res <- kmeans(coordinates_labels[,c(1,2)], clusters, nstart = 25)
+print(km.res)
+
+cluster_centers <- aggregate(coordinates_labels[,c(1:2)], by=list(cluster=km.res$cluster), mean)
+cluster_classifications <- cbind(coordinates_labels, cluster = km.res$cluster)
+
+cluster_plot <- fviz_cluster(km.res, data = coordinates_labels[,c(1,2)],
+                             ellipse.type = 'norm') +
+  theme_classic() +
+  labs(x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2")
+
+cluster_plot
+
+```
+
+
+```{r}
+cluster_classifications <- cluster_classifications %>%
+  mutate(labels = ifelse(Rank <= 8, "1", "2"))
+
+misclassification <- cluster_classifications %>%
+  select(Rank, cluster, labels)
+
+misclassification$cluster <- as.factor(misclassification$cluster)
+misclassification$labels <- as.factor(misclassification$labels)
+
+
+conf_matrix <- confusionMatrix(data=misclassification$cluster, reference = misclassification$labels)
+
+conf_matrix
+
+```
+
+```{r}
+ggsave(cluster_plot, filename = paste0("UMAP_K-means_", clusters, "_Clusters_Plot_Rank_", Sys.Date(), ".png"), path = "Graphs/")
+write.csv(cluster_classifications, "Exports/NMR_UMAP_Coordinates_and_Labels.csv")
+```
+

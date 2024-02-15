@@ -1,0 +1,71 @@
+---
+title: "Social_Preference_Notebook"
+author: "Simon Ogundare"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+#009-895-085, 035-792-015, 070-613-123, 077-843-016, 009-885-849
+
+id_to_match <- "009-885-849"
+ref_point = 1
+files <- list.files(path = "/Users/Simon/Desktop/Life/Columbia/(y) Research/Labs/Abdus-Saboor Lab/Lab Code/keypoint_moseq_visualizations/Social preference test H5s", pattern = id_to_match, full.names = TRUE)
+file_names <- list.files(path = "/Users/Simon/Desktop/Life/Columbia/(y) Research/Labs/Abdus-Saboor Lab/Lab Code/keypoint_moseq_visualizations/Social preference test H5s", pattern = id_to_match, full.names = FALSE)
+
+paired <- H5Fopen(files[grep("investigating", files)])
+baseline <- H5Fopen(files[grep("baseline", files)])
+
+animalb <- which(baseline$track_names == "NMR1")
+animalp <- which(paired$track_names == "NMR1")
+
+# handle baseline first
+
+dfb <- data.frame(matrix(nrow = length(baseline$tracks[,1,1,animalb])))
+
+xb <- baseline$tracks[,ref_point,1,animalb]
+xb[is.nan(xb)] <- NA
+yb <- baseline$tracks[,ref_point,2,animalb]
+yb[is.nan(yb)] <- NA
+  
+dfb <- cbind(dfb, xb)
+dfb <- cbind(dfb, yb)
+
+dfb <- dfb[2:ncol(dfb)]
+
+# handle paired second
+
+dfp <- data.frame(matrix(nrow = length(paired$tracks[,1,1,animalp])))
+
+xp <- paired$tracks[,ref_point,1,animalp]
+xp[is.nan(xp)] <- NA
+yp <- paired$tracks[,ref_point,2,animalp]
+yp[is.nan(yp)] <- NA
+  
+dfp <- cbind(dfp, xp)
+dfp <- cbind(dfp, yp)
+
+dfp <- dfp[2:ncol(dfp)]
+
+baseline_plot <- ggplot(data = dfb) +
+  geom_point(aes(x = xb, y = yb), color = "lightblue", alpha = 0.10) +
+  theme_void() +
+  theme(legend.position = "none")
+
+paired_plot <- ggplot(data = dfp) +
+  geom_point(aes(x = xp, y = yp), color = "lightpink", alpha = 0.10) +
+  theme_void() +
+  theme(legend.position = "none")
+
+compared <- ggarrange(baseline_plot, paired_plot, nrow = 2, ncol = 1)
+compared
+ggsave(file=paste0("/Users/Simon/Desktop/", id_to_match, ".pdf"), plot=compared)
+
+```
+
