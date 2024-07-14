@@ -4,7 +4,9 @@ library(tidyverse)
 parent_dir <- "/Users/Simon/Desktop/Olfactory preference test - SLEAP analysis/"
 files <- list.files(parent_dir, pattern = "*.h5")
 
-nmr_ids <- c("009-895-085", "600-585-804")
+nmr_ids <- c("009-895-085", "600-585-804",
+             "838-343-793", "077-843-016",
+             "035-792-015")
 body_part_to_track <- 4 #centroid
 
 for (nmr_id in 1:length(nmr_ids)) {
@@ -14,6 +16,11 @@ for (nmr_id in 1:length(nmr_ids)) {
   baseline_tracking <- H5Fopen(paste0(parent_dir, nmr_id_files[3]))
   trim_parameters <- H5Fopen(paste0(parent_dir, nmr_id_files[2]))
   trim_tracking <- H5Fopen(paste0(parent_dir, nmr_id_files[4]))
+  
+  message("baseline params found: ", nmr_id_files[1])
+  message("baseline tracking found: ", nmr_id_files[3])
+  message("trim params found: ", nmr_id_files[2])
+  message("trim tracking found: ", nmr_id_files[4])
   
   baseline_parameters_tracks <- baseline_parameters$tracks[,,,1]
   baseline_tracking_tracks <- baseline_tracking$tracks[,body_part_to_track,,1]
@@ -52,9 +59,9 @@ for (nmr_id in 1:length(nmr_ids)) {
                                        "Time.in.Left.Chamber" = sum(trim_tracking_tracks$`In Left Chamber?`, na.rm = TRUE),
                                        "Time.in.Right.Chamber" = sum(trim_tracking_tracks$`In Right Chamber?`, na.rm = TRUE)))
   
-  write.csv(summary_df, paste0("/Users/Simon/Desktop/Olf_Pref/summary_data_", nmr_ids[nmr_id], ".csv"))
-  write.csv(baseline_tracking_tracks, paste0("/Users/Simon/Desktop/Olf_Pref/baseline_tracking_", nmr_ids[nmr_id], ".csv"))
-  write.csv(trim_tracking_tracks, paste0("/Users/Simon/Desktop/Olf_Pref/baseline_tracking_", nmr_ids[nmr_id], ".csv"))
+  write.csv(summary_df, paste0("/Users/Simon/Desktop/Olfactory preference test - SLEAP analysis/Olf_Pref/summary_data_", nmr_ids[nmr_id], ".csv"))
+  write.csv(baseline_tracking_tracks, paste0("/Users/Simon/Desktop/Olfactory preference test - SLEAP analysis/Olf_Pref/baseline_tracking_", nmr_ids[nmr_id], ".csv"))
+  write.csv(trim_tracking_tracks, paste0("/Users/Simon/Desktop/Olfactory preference test - SLEAP analysis/Olf_Pref/trim_tracking_", nmr_ids[nmr_id], ".csv"))
   
 
 }
